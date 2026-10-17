@@ -1,68 +1,80 @@
+"""Slack Socket Mode bridge -> master agent. Replies in-thread with token/cost/time stats."""
+from __future__ import annotations
+
+import logging
 import os
 import re
-import logging
-from dotenv import load_dotenv
+import uuid
+
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+
+from config.settings import get_settings  # importing this loads .env
 from agents.master_agent import execute_master_agent
 
-load_dotenv()
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+log = logging.getLogger("slack_bridge")
 
-logging.basicConfig(level=logging.INFO)
+MENTION_RE = re.compile(r"<@[A-Z0-9]+>")
+FLOW_RE = re.compile(r"\b(flow|chart|diagram|how it works|kaise kaam)\b", re.IGNORECASE)
+SLACK_TEXT_LIMIT = 39_000
 
-SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
-SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN")
 
-app = App(token=SLACK_BOT_TOKEN)
+def handle_prompt(event: dict, say, client) -> None:
+    """Run one Slack message through the agent and update a placeholder reply in-thread."""
+    thread_ts = event.get("thread_ts") or event["ts"]
+    allowed = get_settings().allowed_slack_users
+    if allowed and event.get("user") not in allowed:
+        say(text="🚫 You're not authorised to run this agent.", thread_ts=thread_ts)
+        return
 
-# Main App Mention Event Handler
-@app.event("app_mention")
-def handle_mention(body, say):
-    print("\n🔔 [APP MENTION DETECTED]:", body.get("event", {}).get("text", ""))
-    process_message(body, say)
+    prompt = MENTION_RE.sub("", event.get("text", "")).strip()
+    if not prompt:
+        say(text="👋 Ask me something, e.g. `where is app.py`.", thread_ts=thread_ts)
+        return
 
-# Fallback Message Event Handler
-@app.event("message")
-def handle_message_events(body, logger):
-    event = body.get("event", {})
-    if "bot_id" not in event:
-        print("\n💬 [MESSAGE EVENT RECEIVED]:", event.get("text", ""))
-
-def process_message(body, say):
+    log.info("Prompt from %s: %s", event.get("user"), prompt)
+    placeholder = say(text=f"⏳ Working on: _{prompt}_", thread_ts=thread_ts)
     try:
-        event = body["event"]
-        raw_text = event["text"]
-        
-        # Slack user mention (<@U123456>) ko clean query mein convert karein
-        clean_prompt = re.sub(r"<@.*?>", "", raw_text).strip()
-        
-        print(f"💬 Clean Prompt: \"{clean_prompt}\"")
-        
-        # Direct channel main feed par message bhejna (bina thread_ts ke)
-        say(f"⏳ *Master Agent triggered for:* \"{clean_prompt}\"")
-        
-        # LangGraph Master Agent Trigger
-        result = execute_master_agent(clean_prompt)
-        
-        # Direct channel main feed par final response bhejna
-        say(result)
-        print("✅ Response sent successfully to main channel chat!")
-        
-    except Exception as e:
-        print(f"❌ Execution Error: {e}")
-        say(f"❌ *Error executing task:* `{str(e)}`")
+        result = execute_master_agent(prompt)
+        text = result.to_slack(include_flow=bool(FLOW_RE.search(prompt)))
+    except Exception:
+        error_id = uuid.uuid4().hex[:8]
+        log.exception("Agent failed (error_id=%s)", error_id)
+        text = f"❌ Something went wrong (error id `{error_id}`). Check the bot logs."
+
+    if len(text) > SLACK_TEXT_LIMIT:
+        text = text[:SLACK_TEXT_LIMIT] + "\n... (truncated)"
+    client.chat_update(channel=placeholder["channel"], ts=placeholder["ts"], text=text)
+
+
+def create_app() -> App:
+    app = App(token=os.environ["SLACK_BOT_TOKEN"])
+
+    @app.event("app_mention")
+    def on_mention(event, say, client):
+        handle_prompt(event, say, client)
+
+    @app.event("message")
+    def on_message(event, say, client):
+        # Channel messages arrive via app_mention; here we only answer direct messages.
+        if event.get("channel_type") == "im" and not event.get("bot_id") and not event.get("subtype"):
+            handle_prompt(event, say, client)
+
+    return app
+
+
+def main() -> None:
+    if not os.getenv("SLACK_BOT_TOKEN") or not os.getenv("SLACK_APP_TOKEN"):
+        raise SystemExit("SLACK_BOT_TOKEN and SLACK_APP_TOKEN must be set (see .env.example).")
+    app = create_app()
+    auth = app.client.auth_test()
+    log.info("Authenticated as %s", auth["user"])
+    SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start()
+
 
 if __name__ == "__main__":
-    if not SLACK_BOT_TOKEN or not SLACK_APP_TOKEN:
-        print("❌ Tokens missing in .env! Please check SLACK_BOT_TOKEN and SLACK_APP_TOKEN.")
-    else:
-        try:
-            print("🔄 Validating Slack credentials...")
-            auth_info = app.client.auth_test()
-            print(f"✅ Bot Token Authenticated! Bot Name: {auth_info['user']}")
-            
-            print("⚡ Starting Socket Mode Handler...")
-            handler = SocketModeHandler(app, SLACK_APP_TOKEN)
-            handler.start()
-        except Exception as e:
-            print(f"❌ Connection Error: {e}")
+    main()
