@@ -1,0 +1,11 @@
+langchain>=0.3
+langchain-core>=0.3
+langchain-anthropic>=0.3  # or langchain-openai if LLM_PROVIDER=openai
+langgraph>=0.2
+pydantic>=2
+python-dotenv>=1.0
+PyGithub>=2.1
+slack-bolt>=1.18
+mcp>=1.0
+flask>=3.0  # only for demo/app.py
+pytest>=8  # tests
