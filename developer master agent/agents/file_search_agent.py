@@ -1,56 +1,53 @@
-import os
+"""Find files in the workspace by name / path keywords, ranked by relevance."""
+from __future__ import annotations
+
 import re
 
-def load_agent_skill() -> str:
-    """File Search Agent ke liye .md skill instructions load karta hai."""
-    skill_path = ".claude/skills/security-review/deploy/file search agent.md"
-    if os.path.exists(skill_path):
-        with open(skill_path, "r", encoding="utf-8") as f:
-            return f.read()
-    return ""
+from agents.workspace import iter_workspace_files
+from config.settings import get_settings
 
-def search_file_or_path(query: str) -> str:
-    """
-    User query se filenames/keywords extract karta hai aur workspace traverse karke matching files ka absolute path dhoondhta hai.
-    """
-    skill_instructions = load_agent_skill()
-    if skill_instructions:
-        print("[File Search Agent] Loaded instructions from skill .md file successfully.")
+STOP_WORDS = frozenset({
+    "where", "is", "the", "path", "of", "file", "files", "find", "search", "what",
+    "to", "in", "a", "an", "for", "me", "show", "locate", "my", "please", "which",
+})
 
-    root_dir = os.getcwd()
-    ignore_dirs = {".git", "venv", ".venv", "node_modules", "__pycache__", ".claude"}
-    
-    clean_query = query.lower()
-    words = re.findall(r'\b\w+(?:\.\w+)?\b', clean_query)
-    
-    stop_words = {"where", "is", "the", "path", "of", "file", "find", "search", "what", "add", "new", "feature", "log", "to", "in", "a", "for"}
-    search_keywords = [w for w in words if w not in stop_words]
-    
-    matched_paths = set()
 
-    for root, dirs, files in os.walk(root_dir):
-        dirs[:] = [d for d in dirs if d not in ignore_dirs]
-        for file in files:
-            file_lower = file.lower()
-            if any(keyword in file_lower for keyword in search_keywords):
-                full_path = os.path.join(root, file)
-                # Absolute path generate karna taaki poora path dikhe
-                abs_path = os.path.abspath(full_path)
-                matched_paths.add(abs_path)
+def extract_terms(query: str) -> list[str]:
+    """Pull candidate file-name keywords out of a natural-language query."""
+    words = re.findall(r"[\w.\-]+", query.lower())
+    return [w for w in words if w not in STOP_WORDS and len(w) > 1]
 
-    # Fallback search agar keywords match na hon
-    if not matched_paths:
-        for root, dirs, files in os.walk(root_dir):
-            dirs[:] = [d for d in dirs if d not in ignore_dirs]
-            for file in files:
-                for word in words:
-                    if len(word) > 2 and word in file.lower():
-                        full_path = os.path.join(root, file)
-                        abs_path = os.path.abspath(full_path)
-                        matched_paths.add(abs_path)
 
-    if matched_paths:
-        paths_list = "\n".join([f"• `{p}`" for p in sorted(matched_paths)])
-        return f"🔍 **Found matching file paths:**\n{paths_list}"
-    else:
-        return f"❌ No files matching keywords `{search_keywords}` were found in the workspace."
+def _score(terms: list[str], name: str, stem: str, rel: str) -> int:
+    score = 0
+    for term in terms:
+        if term in (name, stem):
+            score += 3  # exact file name / stem
+        elif term in name:
+            score += 2  # partial file name
+        elif term in rel:
+            score += 1  # matches a parent directory
+    return score
+
+
+def search_files(terms: list[str], max_results: int = 25) -> str:
+    root = get_settings().workspace_root
+    terms = [t.lower() for t in terms if t and t.strip()]
+    if not terms:
+        return "🔍 Tell me what to look for, e.g. `where is app.py`."
+
+    scored: list[tuple[int, str]] = []
+    for path in iter_workspace_files():
+        rel = path.relative_to(root).as_posix()
+        score = _score(terms, path.name.lower(), path.stem.lower(), rel.lower())
+        if score:
+            scored.append((score, rel))
+
+    if not scored:
+        wanted = ", ".join(f"`{t}`" for t in terms)
+        return f"❌ No files matching {wanted} in `{root}`."
+
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    lines = [f"• `{root / rel}`" for _, rel in scored[:max_results]]
+    more = f"\n…and {len(scored) - max_results} more" if len(scored) > max_results else ""
+    return f"🔍 *Found {len(scored)} matching file(s):*\n" + "\n".join(lines) + more
