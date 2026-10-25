@@ -6,8 +6,9 @@ from typing import TypedDict, Sequence
 from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langgraph.graph import StateGraph, END
+from langchain_community.callbacks.manager import get_openai_callback
 
-# Logging setup for production-grade telemetry (Yahan logger define kiya hai)
+# Logging setup for production-grade telemetry
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,7 @@ def execute_master_agent(user_prompt: str) -> str:
     logger.info(f"Executing Query: {user_prompt}")
     
     start_time = time.time()
-    prompt_tokens, completion_tokens, total_tokens = 0, 0, 0
+    total_tokens, prompt_tokens, completion_tokens = 0, 0, 0
     
     initial_state = {
         "messages": [HumanMessage(content=user_prompt)],
@@ -150,23 +151,13 @@ def execute_master_agent(user_prompt: str) -> str:
     }
     
     try:
-        result = master_graph.invoke(initial_state)
-        
-        if result and "messages" in result:
-            for msg in result["messages"]:
-                if hasattr(msg, "response_metadata") and msg.response_metadata:
-                    usage = msg.response_metadata.get("usage", {})
-                    prompt_tokens += usage.get("input_tokens", 0)
-                    completion_tokens += usage.get("output_tokens", 0)
-                elif hasattr(msg, "usage_metadata") and msg.usage_metadata:
-                    usage = msg.usage_metadata
-                    prompt_tokens += usage.get("input_tokens", 0) or usage.get("prompt_tokens", 0)
-                    completion_tokens += usage.get("output_tokens", 0) or usage.get("completion_tokens", 0)
-            
-            total_tokens = prompt_tokens + completion_tokens
-            
+        with get_openai_callback() as cb:
+            result = master_graph.invoke(initial_state)
+            total_tokens = cb.total_tokens
+            prompt_tokens = cb.prompt_tokens
+            completion_tokens = cb.completion_tokens
     except Exception as e:
-        logger.error(f"Execution Error: {e}")
+        logger.error(f"Execution Error with callback: {e}")
         result = master_graph.invoke(initial_state)
     
     end_time = time.time()
