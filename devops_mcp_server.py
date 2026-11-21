@@ -58,6 +58,12 @@ def _run_git(git_exe: str, args: list[str], env: dict[str, str]) -> subprocess.C
     )
 
 
+def _redact_secret(text: str, secret: str | None) -> str:
+    if not secret:
+        return text
+    return text.replace(secret, "***")
+
+
 @mcp.tool()
 def read_workspace_file(file_path: str) -> str:
     """Read content of a file in the workspace."""
@@ -102,6 +108,7 @@ def search_workspace_files(query: str, search_dir: str = ".") -> str:
 @mcp.tool()
 def run_command(command: str) -> str:
     """Execute a terminal or git command safely with quoted arguments preserved."""
+    token = os.getenv("GITHUB_TOKEN")
     try:
         cmd = (command or "").strip()
         if not cmd:
@@ -127,11 +134,13 @@ def run_command(command: str) -> str:
                 timeout=60,
             )
 
-        return f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+        out = _redact_secret(result.stdout, token)
+        err = _redact_secret(result.stderr, token)
+        return f"STDOUT:\n{out}\nSTDERR:\n{err}"
     except subprocess.TimeoutExpired:
         return "Error: Command execution timed out after 60 seconds."
     except Exception as e:
-        return f"Error executing command: {str(e)}"
+        return f"Error executing command: {_redact_secret(str(e), token)}"
 
 
 @mcp.tool()
@@ -143,8 +152,8 @@ def create_github_pull_request(
     pr_body: str = "",
 ) -> str:
     """Stage changes, commit on a branch, push to origin, and open a GitHub Pull Request."""
+    token = os.getenv("GITHUB_TOKEN")
     try:
-        token = os.getenv("GITHUB_TOKEN")
         if not token:
             return "Error: GITHUB_TOKEN not found in environment or .env."
 
@@ -161,7 +170,6 @@ def create_github_pull_request(
 
         env = _git_env()
 
-        # Switch to branch if it already exists, otherwise create it
         current_branch = _run_git(git_exe, ["rev-parse", "--abbrev-ref", "HEAD"], env)
         if current_branch.stdout.strip() != branch_name:
             checkout_res = _run_git(git_exe, ["checkout", "-b", branch_name], env)
@@ -170,17 +178,28 @@ def create_github_pull_request(
 
         add_res = _run_git(git_exe, ["add", "."], env)
         if add_res.returncode != 0:
-            return f"Git Add Error: {add_res.stderr.strip()}"
+            return f"Git Add Error: {_redact_secret(add_res.stderr.strip(), token)}"
 
         commit_res = _run_git(git_exe, ["commit", "-m", commit_message], env)
         if commit_res.returncode != 0:
             combined_out = f"{commit_res.stdout}\n{commit_res.stderr}".lower()
             if "nothing to commit" not in combined_out:
-                return f"Git Commit Error: {commit_res.stderr.strip()}"
+                return f"Git Commit Error: {_redact_secret(commit_res.stderr.strip(), token)}"
 
-        push_res = _run_git(git_exe, ["push", "-u", "origin", branch_name], env)
+        remote_res = _run_git(git_exe, ["remote", "get-url", "origin"], env)
+        remote_url = remote_res.stdout.strip()
+
+        push_target = "origin"
+        if remote_url.startswith("https://github.com/"):
+            push_target = remote_url.replace(
+                "https://github.com/",
+                f"https://x-access-token:{token}@github.com/",
+                1,
+            )
+
+        push_res = _run_git(git_exe, ["push", "-u", push_target, f"{branch_name}:{branch_name}"], env)
         if push_res.returncode != 0:
-            return f"Git Push Error: {push_res.stderr.strip()}"
+            return f"Git Push Error: {_redact_secret(push_res.stderr.strip(), token)}"
 
         gh = Github(token)
         repo = gh.get_repo(resolved_repo)
@@ -195,7 +214,7 @@ def create_github_pull_request(
         return f"Push successful & PR Created: {pr.html_url}"
 
     except Exception as e:
-        return f"Error creating GitHub PR: {str(e)}"
+        return f"Error creating GitHub PR: {_redact_secret(str(e), token)}"
 
 
 if __name__ == "__main__":
