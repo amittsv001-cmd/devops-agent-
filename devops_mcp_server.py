@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 import ast
 import operator as _op
 import os
@@ -112,33 +111,10 @@ def read_workspace_file(file_path: str) -> str:
         if not path.exists():
             return f"Error: File '{file_path}' not found."
         return path.read_text(encoding="utf-8")
-=======
-import os
-import subprocess
-from mcp.server.fastmcp import FastMCP
-from dotenv import load_dotenv
-from github import Github
-
-# .env file se environment variables (GITHUB_TOKEN) load karne ke liye
-load_dotenv()
-
-# MCP Server Initialize
-mcp = FastMCP("VSCode-DevOps-Server")
-
-
-# --- TOOL 1: Read Workspace File ---
-@mcp.tool()
-def read_workspace_file(file_path: str) -> str:
-    """VS Code workspace se kisi file ka content padhta hai."""
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            return f.read()
->>>>>>> origin/main
     except Exception as e:
         return f"Error reading file: {str(e)}"
 
 
-<<<<<<< HEAD
 @mcp.tool()
 def write_workspace_file(file_path: str, content: str) -> str:
     """Write or overwrite a file in the workspace."""
@@ -146,25 +122,11 @@ def write_workspace_file(file_path: str, content: str) -> str:
         path = Path(file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-=======
-# --- TOOL 2: Write / Update Workspace File ---
-@mcp.tool()
-def write_workspace_file(file_path: str, content: str) -> str:
-    """VS Code workspace ki kisi file ko edit ya naya content likhta hai."""
-    try:
-        dir_name = os.path.dirname(file_path)
-        if dir_name:
-            os.makedirs(dir_name, exist_ok=True)
-            
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(content)
->>>>>>> origin/main
         return f"Successfully updated {file_path}"
     except Exception as e:
         return f"Error writing file: {str(e)}"
 
 
-<<<<<<< HEAD
 @mcp.tool()
 def search_workspace_files(query: str, search_dir: str = ".") -> str:
     """Search workspace files matching a name or pattern."""
@@ -238,9 +200,18 @@ def _stage_commit_and_push(
         if "nothing to commit" not in combined_out:
             return f"Git Commit Error: {_redact_secret(commit_res.stderr.strip(), token)}"
 
+    head_ok = _run_git(git_exe, ["rev-parse", "--verify", "HEAD"], env).returncode == 0
+    if not head_ok:
+        return "Git Push Error: Repository has no commits (HEAD does not exist) to push."
+
+    branch_exists = _run_git(git_exe, ["show-ref", "--verify", f"refs/heads/{branch_name}"], env).returncode == 0
+    if not branch_exists:
+        return f"Git Push Error: Local branch '{branch_name}' does not exist."
+
     push_res = _run_git(git_exe, ["push", "-u", push_target, f"{branch_name}:{branch_name}"], env)
     if push_res.returncode != 0:
-        return f"Git Push Error: {_redact_secret(push_res.stderr.strip(), token)}"
+        err_detail = (push_res.stderr or push_res.stdout or "").strip()
+        return f"Git Push Error: {_redact_secret(err_detail, token)}"
 
     return None
 
@@ -291,13 +262,17 @@ def create_github_pull_request(
         if current_branch != branch_name:
             exists_local = _run_git(git_exe, ["show-ref", "--verify", f"refs/heads/{branch_name}"], env).returncode == 0
             if exists_local:
-                _run_git(git_exe, ["checkout", branch_name], env)
+                co_res = _run_git(git_exe, ["checkout", branch_name], env)
+                if co_res.returncode != 0:
+                    return f"Git Checkout Error: {_redact_secret(co_res.stderr.strip(), token)}"
             else:
                 base_ref_ok = _run_git(git_exe, ["show-ref", "--verify", f"refs/remotes/origin/{base_branch}"], env).returncode == 0
                 if base_ref_ok:
-                    _run_git(git_exe, ["checkout", "-b", branch_name, f"origin/{base_branch}"], env)
+                    co_res = _run_git(git_exe, ["checkout", "-b", branch_name, f"origin/{base_branch}"], env)
                 else:
-                    _run_git(git_exe, ["checkout", "-b", branch_name], env)
+                    co_res = _run_git(git_exe, ["checkout", "-b", branch_name], env)
+                if co_res.returncode != 0:
+                    return f"Git Branch Create Error: {_redact_secret(co_res.stderr.strip(), token)}"
 
         err = _stage_commit_and_push(git_exe, env, branch_name, commit_message, push_target, token)
         if err:
@@ -316,7 +291,6 @@ def create_github_pull_request(
             if "no history in common" not in err_msg.lower():
                 raise
 
-            # Unrelated history recovery: try merging origin/<base_branch> first
             merge_res = _run_git(
                 git_exe,
                 ["merge", f"origin/{base_branch}", "--allow-unrelated-histories", "-m", f"Merge origin/{base_branch}"],
@@ -333,10 +307,14 @@ def create_github_pull_request(
                     )
                     return f"Merged origin/{base_branch}, pushed & PR Created: {pr.html_url}"
 
-            # If merge had conflicts, abort merge and create a fresh branch from origin/<base_branch>
             _run_git(git_exe, ["merge", "--abort"], env)
             clean_branch = f"{branch_name}-synced"
-            _run_git(git_exe, ["checkout", "-B", clean_branch, f"origin/{base_branch}"], env)
+            base_ref_ok = _run_git(git_exe, ["show-ref", "--verify", f"refs/remotes/origin/{base_branch}"], env).returncode == 0
+            co_args = ["checkout", "-B", clean_branch, f"origin/{base_branch}"] if base_ref_ok else ["checkout", "-B", clean_branch]
+            co_clean = _run_git(git_exe, co_args, env)
+            if co_clean.returncode != 0:
+                return f"Git Sync Checkout Error: {_redact_secret(co_clean.stderr.strip(), token)}"
+
             err_clean = _stage_commit_and_push(git_exe, env, clean_branch, commit_message, push_target, token)
             if err_clean:
                 return err_clean
@@ -390,51 +368,6 @@ def calculate_math(
         return f"{expr} = {_fmt_calc(result)}"
     except Exception as e:
         return f"Math Error: {e}"
-=======
-# --- TOOL 3: Run Terminal Command (Tests & Git) ---
-@mcp.tool()
-def run_command(command: str) -> str:
-    """Terminal command execute karta hai (e.g. git status, npm test, etc.)."""
-    try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
-        return f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-    except Exception as e:
-        return f"Error executing command: {str(e)}"
-
-
-# --- TOOL 4: GitHub PR & Push Automation ---
-@mcp.tool()
-def create_github_pull_request(repo_name: str, branch_name: str, commit_message: str, pr_title: str, pr_body: str = "") -> str:
-    """
-    Local git changes ko branch par commit karta hai, origin par push karta hai,
-    aur GitHub par Pull Request (PR) open karta hai.
-    """
-    try:
-        token = os.getenv("GITHUB_TOKEN")
-        if not token:
-            return "Error: .env file ya environment mein GITHUB_TOKEN nahi mila."
-
-        # 1. Local Git commands execute karna
-        subprocess.run(f"git checkout -b {branch_name}", shell=True, check=True)
-        subprocess.run("git add .", shell=True, check=True)
-        subprocess.run(f'git commit -m "{commit_message}"', shell=True, check=True)
-        subprocess.run(f"git push origin {branch_name}", shell=True, check=True)
-
-        # 2. PyGithub ke zariye GitHub PR kholna
-        g = Github(token)
-        repo = g.get_repo(repo_name)
-        
-        pr = repo.create_pull(
-            title=pr_title,
-            body=pr_body if pr_body else "Automated Pull Request generated by Slack AI DevOps Agent.",
-            head=branch_name,
-            base="main"
-        )
-        return f"✅ Push successful & PR Created: {pr.html_url}"
-
-    except Exception as e:
-        return f"Error creating GitHub PR: {str(e)}"
->>>>>>> origin/main
 
 
 if __name__ == "__main__":
