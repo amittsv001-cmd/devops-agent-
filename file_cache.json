@@ -1,0 +1,94 @@
+{
+  "C:\\Users\\welcome\\Desktop\\gemini 2 agent\\demo\\app.py": {
+    "mtime": 1792225581.2334044,
+    "content": "from flask import Flask, jsonify\n\napp = Flask(__name__)\n\n@app.route(\"/\")\ndef home():\n    return jsonify({\n        \"status\": \"success\",\n        \"message\": \"Welcome to AI Agent Demo API\",\n        \"version\": \"1.0.0\"\n    })\n\n@app.route(\"/health\")\ndef health_check():\n    return jsonify({\"status\": \"healthy\"})\n\nif __name__ == \"__main__\":\n    app.run(port=5000, debug=True)",
+    "counts": {
+      "total_characters": 367,
+      "total_alphabets": 200,
+      "uppercase_alphabets": 11,
+      "lowercase_alphabets": 189,
+      "total_words": 45,
+      "total_number_tokens": 3,
+      "numbers": [
+        "1.0",
+        "0",
+        "5000"
+      ],
+      "letter_frequency_nonzero": {
+        "a": 19,
+        "b": 1,
+        "c": 5,
+        "d": 4,
+        "e": 23,
+        "f": 10,
+        "g": 3,
+        "h": 8,
+        "i": 9,
+        "j": 3,
+        "k": 4,
+        "l": 7,
+        "m": 9,
+        "n": 11,
+        "o": 13,
+        "p": 11,
+        "r": 12,
+        "s": 16,
+        "t": 16,
+        "u": 10,
+        "v": 1,
+        "w": 1,
+        "y": 4
+      },
+      "missing_letters": [
+        "q",
+        "x",
+        "z"
+      ]
+    }
+  },
+  "C:\\Users\\welcome\\Desktop\\gemini 2 agent\\demo.txt": {
+    "mtime": 1795502486.8302968,
+    "content": "# File created for: Add new feature log to demo file\n\n# Change applied by Code Agent: Add new feature log to demo file\n# Change applied by Code Agent: what is the path of demo file\n# Change applied by Code Agent: Add new feature log to demo file\n# Change applied by Code Agent: github par code push kar do commit message 'update git agent' ke sath\n# Change applied by Code Agent: change the demo files make good changes in  demo file code\n# Test log from Groq DevOps Agent\nwill watch for changes\n changes in these directories: ['C:\\Users\\welcome\\Desktop\\gemini 2 agent'\nthis is for testing\ntesting is ready",
+    "counts": {
+      "total_characters": 606,
+      "total_alphabets": 468,
+      "uppercase_alphabets": 27,
+      "lowercase_alphabets": 441,
+      "total_words": 108,
+      "total_number_tokens": 1,
+      "numbers": [
+        "2"
+      ],
+      "letter_frequency_nonzero": {
+        "a": 39,
+        "b": 6,
+        "c": 22,
+        "d": 32,
+        "e": 74,
+        "f": 15,
+        "g": 29,
+        "h": 19,
+        "i": 28,
+        "k": 4,
+        "l": 19,
+        "m": 13,
+        "n": 25,
+        "o": 34,
+        "p": 16,
+        "q": 1,
+        "r": 15,
+        "s": 21,
+        "t": 35,
+        "u": 7,
+        "v": 1,
+        "w": 7,
+        "y": 6
+      },
+      "missing_letters": [
+        "j",
+        "x",
+        "z"
+      ]
+    }
+  }
+}

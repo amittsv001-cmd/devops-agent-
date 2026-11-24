@@ -1,3 +1,5 @@
+import ast
+import operator as _op
 import os
 import shlex
 import subprocess
@@ -10,6 +12,43 @@ from mcp.server.fastmcp import FastMCP
 load_dotenv()
 
 mcp = FastMCP("VSCode-DevOps-Server")
+
+_SAFE_BINOPS: dict[type, object] = {
+    ast.Add: _op.add,
+    ast.Sub: _op.sub,
+    ast.Mult: _op.mul,
+    ast.Div: _op.truediv,
+    ast.FloorDiv: _op.floordiv,
+    ast.Mod: _op.mod,
+    ast.Pow: _op.pow,
+}
+
+_SAFE_UNARYOPS: dict[type, object] = {
+    ast.UAdd: _op.pos,
+    ast.USub: _op.neg,
+}
+
+
+def _eval_ast_node(node: ast.AST) -> float:
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        if isinstance(node.value, bool):
+            raise ValueError("Booleans are not valid numbers.")
+        return float(node.value)
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _SAFE_UNARYOPS:
+        fn = _SAFE_UNARYOPS[type(node.op)]
+        return float(fn(_eval_ast_node(node.operand)))  # type: ignore[operator]
+    if isinstance(node, ast.BinOp) and type(node.op) in _SAFE_BINOPS:
+        fn = _SAFE_BINOPS[type(node.op)]
+        left = _eval_ast_node(node.left)
+        right = _eval_ast_node(node.right)
+        if isinstance(node.op, (ast.Div, ast.FloorDiv, ast.Mod)) and right == 0:
+            raise ZeroDivisionError("Division by zero is not allowed.")
+        return float(fn(left, right))  # type: ignore[operator]
+    raise ValueError(f"Unsupported math construct: {type(node).__name__}")
+
+
+def _fmt_calc(val: float) -> str:
+    return str(int(val)) if float(val).is_integer() else str(round(val, 6))
 
 
 def _get_git_executable() -> str | None:
@@ -215,6 +254,45 @@ def create_github_pull_request(
 
     except Exception as e:
         return f"Error creating GitHub PR: {_redact_secret(str(e), token)}"
+
+
+@mcp.tool()
+def calculate_math(
+    expression: str = "",
+    numbers: list[float] | None = None,
+    operation: str = "eval",
+) -> str:
+    """Safely evaluate a math expression or compute stats (sum/avg/min/max) on a list of numbers."""
+    try:
+        if numbers:
+            clean_nums = [float(n) for n in numbers]
+            total = sum(clean_nums)
+            avg = total / len(clean_nums)
+            mn = min(clean_nums)
+            mx = max(clean_nums)
+            op = (operation or "all").strip().lower()
+            if op == "sum":
+                return f"Sum: {_fmt_calc(total)}"
+            if op in ("avg", "average", "mean"):
+                return f"Average: {_fmt_calc(avg)}"
+            if op in ("min", "minimum"):
+                return f"Min: {_fmt_calc(mn)}"
+            if op in ("max", "maximum"):
+                return f"Max: {_fmt_calc(mx)}"
+            return (
+                f"Count: {len(clean_nums)} | Sum: {_fmt_calc(total)} | "
+                f"Avg: {_fmt_calc(avg)} | Min: {_fmt_calc(mn)} | Max: {_fmt_calc(mx)}"
+            )
+
+        expr = (expression or "").strip()
+        if not expr:
+            return "Error: Provide either a math `expression` or a `numbers` list."
+
+        parsed = ast.parse(expr, mode="eval")
+        result = _eval_ast_node(parsed.body)
+        return f"{expr} = {_fmt_calc(result)}"
+    except Exception as e:
+        return f"Math Error: {e}"
 
 
 if __name__ == "__main__":
