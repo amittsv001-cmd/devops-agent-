@@ -3,6 +3,7 @@
 # Change applied by Code Agent: Add new feature log to demo file
 # Change applied by Code Agent: what is the path of demo file
 # Change applied by Code Agent: Add new feature log to demo file
+<<<<<<< HEAD
 # Change applied by Code Agent: github par code push kar do commit message 'update git agent' ke sath
 # Change applied by Code Agent: change the demo files make good changes in  demo file code
 # Test log from Groq DevOps Agent
@@ -10,3 +11,6 @@ will watch for changes
  changes in these directories: ['C:\Users\welcome\Desktop\gemini 2 agent'
 this is for testing
 testing is ready
+=======
+# Change applied by Code Agent: github par code push kar do commit message 'update git agent' ke sath
+>>>>>>> origin/main

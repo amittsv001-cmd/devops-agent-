@@ -216,5 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+<<<<<<< HEAD
 # Agent runtime telemetry
 stats_history.json
+=======
+>>>>>>> origin/main
